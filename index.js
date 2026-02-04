@@ -12,6 +12,25 @@ const HALO_PORT = process.env.HALO_PORT || 4000;
 const HALO_TOKEN = process.env.HALO_TOKEN || 'halo-secret-token';
 const VOLUMES_DIR = path.join(__dirname, 'volumes');
 
+let activeServers = {};
+
+// Helper to get content type (ported from Master)
+function getContentType(filename) {
+    const ext = path.extname(filename).toLowerCase();
+    switch (ext) {
+        case ".html": return "text/html";
+        case ".css": return "text/css";
+        case ".js": return "application/javascript";
+        case ".json": return "application/json";
+        case ".png": return "image/png";
+        case ".jpg":
+        case ".jpeg": return "image/jpeg";
+        case ".svg": return "image/svg+xml";
+        case ".ico": return "image/x-icon";
+        default: return "application/octet-stream";
+    }
+}
+
 // Ensure volumes directory exists
 if (!fs.existsSync(VOLUMES_DIR)) {
     fs.mkdirSync(VOLUMES_DIR, { recursive: true });
@@ -51,6 +70,49 @@ app.get('/api/files/list/:uuid', auth, (req, res) => {
         res.json({ files });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/files/read/:uuid/:filename', auth, (req, res) => {
+    const { uuid, filename } = req.params;
+    const filePath = path.join(VOLUMES_DIR, uuid, filename);
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        res.json({ content });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/files/size/:uuid', auth, (req, res) => {
+    const { uuid } = req.params;
+    const sitePath = path.join(VOLUMES_DIR, uuid);
+
+    let totalSize = 0;
+    const calculateSize = (dir) => {
+        if (!fs.existsSync(dir)) return;
+        const files = fs.readdirSync(dir);
+        files.forEach(file => {
+            const filePath = path.join(dir, file);
+            const stats = fs.statSync(filePath);
+            if (stats.isDirectory()) {
+                calculateSize(filePath);
+            } else {
+                totalSize += stats.size;
+            }
+        });
+    }
+
+    try {
+        calculateSize(sitePath);
+        res.json({ size: totalSize });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to calculate size' });
     }
 });
 
